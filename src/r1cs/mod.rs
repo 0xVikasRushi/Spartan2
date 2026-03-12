@@ -18,8 +18,8 @@ use num_integer::div_ceil;
 use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
 use tracing::{info, info_span};
+use web_time::Instant;
 
 mod sparse;
 pub(crate) use sparse::SparseMatrix;
@@ -847,6 +847,13 @@ impl<E: Engine> SplitR1CSInstance<E> {
     transcript.absorb(b"comm_W_rest", &self.comm_W_rest);
 
     Ok(())
+  }
+
+  /// Returns the public values stored in this instance.
+  /// These are the values committed to during proving and can be used
+  /// for transcript consistency during reblinding.
+  pub fn get_public_values(&self) -> &[E::Scalar] {
+    &self.public_values
   }
 
   pub fn to_regular_instance(&self) -> Result<R1CSInstance<E>, SpartanError> {

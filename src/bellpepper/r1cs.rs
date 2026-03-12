@@ -13,7 +13,7 @@ use bellpepper::gadgets::num::AllocatedNum;
 use bellpepper_core::{ConstraintSystem, Index, LinearCombination};
 use ff::{Field, PrimeField};
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use web_time::Instant;
 use tracing::{debug, info, info_span};
 
 /// `SpartanShape` provides methods for acquiring `SplitR1CSShape` from implementers.

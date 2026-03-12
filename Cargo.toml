@@ -35,6 +35,7 @@ group = "0.13.0"
 once_cell = "1.18.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "time"] }
+web-time = "1.1"
 
 [target.wasm32-unknown-unknown.dependencies]
 # see https://github.com/rust-random/rand/pull/948

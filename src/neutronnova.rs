@@ -35,7 +35,7 @@ use ff::Field;
 use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use web_time::Instant;
 use tracing::{debug, info, info_span};
 
 fn compute_tensor_decomp(n: usize) -> (usize, usize, usize) {

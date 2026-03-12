@@ -8,7 +8,7 @@ use crate::{
   start_span,
   traits::Engine,
 };
-use std::time::Instant;
+use web_time::Instant;
 use tracing::{info, info_span};
 
 /// `TestSpartanShape` provides methods for acquiring `R1CSShape` and `CommitmentKey` from implementers.

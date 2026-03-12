@@ -38,7 +38,7 @@ use once_cell::sync::OnceCell;
 use rand_core::OsRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use web_time::Instant;
 use tracing::{debug, info, info_span};
 
 /// A type that represents the prover's key

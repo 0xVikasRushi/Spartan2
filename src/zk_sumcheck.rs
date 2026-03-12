@@ -16,7 +16,7 @@ use crate::{
 use ff::{Field, PrimeField};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use web_time::Instant;
 use tracing::{info, info_span};
 
 /// 4 k elements is a good cut-off on a 16-core machine.

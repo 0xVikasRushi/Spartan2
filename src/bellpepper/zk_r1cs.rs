@@ -18,8 +18,8 @@ use bellpepper_core::{ConstraintSystem, Index, LinearCombination};
 use ff::{Field, PrimeField};
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
 use tracing::{debug, info, info_span};
+use web_time::Instant;
 
 /// Number of blinding factors added to the witness
 const NUM_BLINDS: usize = 4;
