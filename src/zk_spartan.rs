@@ -77,9 +77,8 @@ pub struct SpartanVerifierKey<E: Engine> {
 impl<E: Engine> SimpleDigestible for SpartanVerifierKey<E> {}
 
 impl<E: Engine> SpartanVerifierKey<E> {
-  /// Sets the cached digest of a key whose digest is not computed yet, such as one deserialized
-  /// from bytes, and errors if it is already set. The digest is not checked against the key, so it
-  /// must come from the same trusted source as the key, and a wrong value makes honest proofs fail.
+  /// Sets the cached digest when it is empty and returns an error when it is already set.
+  /// The value is not checked against the key, so it must come from the same trusted source.
   pub fn restore_digest_unchecked(&self, digest: SpartanDigest) -> Result<(), SpartanError> {
     self
       .digest
