@@ -76,6 +76,19 @@ pub struct SpartanVerifierKey<E: Engine> {
 
 impl<E: Engine> SimpleDigestible for SpartanVerifierKey<E> {}
 
+impl<E: Engine> SpartanVerifierKey<E> {
+  /// Sets the cached digest when it is empty and returns an error when it is already set.
+  /// The value is not checked against the key, so it must come from the same trusted source.
+  pub fn restore_digest_unchecked(&self, digest: SpartanDigest) -> Result<(), SpartanError> {
+    self
+      .digest
+      .set(digest)
+      .map_err(|_| SpartanError::DigestError {
+        reason: "Digest of SpartanVerifierKey is already set".to_string(),
+      })
+  }
+}
+
 impl<E: Engine> DigestHelperTrait<E> for SpartanVerifierKey<E> {
   /// Returns the digest of the verifier's key.
   fn digest(&self) -> Result<SpartanDigest, SpartanError> {
@@ -838,5 +851,52 @@ mod tests {
     let res = snark.verify(&vk);
     // assert!(res.is_ok());
     assert_eq!(res.unwrap(), [<E as Engine>::Scalar::from(15u64)])
+  }
+  #[test]
+  fn test_restore_digest_unchecked() {
+    type E = crate::provider::PallasHyraxEngine;
+
+    let circuit = CubicCircuit::default();
+    let (pk, vk) = R1CSSNARK::<E>::setup(circuit.clone()).unwrap();
+
+    let mut prep_snark = R1CSSNARK::<E>::prep_prove(&pk, circuit.clone(), false).unwrap();
+    let mut transcript = <E as Engine>::TE::new(b"R1CSSNARK");
+    transcript.absorb(b"vk", &pk.vk_digest);
+    let public_values = SpartanCircuit::<E>::public_values(&circuit).unwrap();
+    transcript.absorb(b"public_values", &public_values.as_slice());
+    let (U, W) = SatisfyingAssignment::r1cs_instance_and_witness(
+      &mut prep_snark.ps,
+      &pk.S,
+      &pk.ck,
+      &circuit,
+      false,
+      &mut transcript,
+    )
+    .unwrap();
+    let snark = R1CSSNARK::<E>::prove_inner(&pk, &U, &W, &mut transcript).unwrap();
+
+    let reload = || -> SpartanVerifierKey<E> {
+      bincode::deserialize(&bincode::serialize(&vk).unwrap()).unwrap()
+    };
+
+    let restored = reload();
+    restored.restore_digest_unchecked(pk.vk_digest).unwrap();
+    assert_eq!(restored.digest().unwrap(), pk.vk_digest);
+    assert_eq!(
+      snark.verify(&restored).unwrap(),
+      [<E as Engine>::Scalar::from(15u64)]
+    );
+
+    let mut wrong = pk.vk_digest;
+    wrong[0] ^= 1;
+    let corrupted = reload();
+    corrupted.restore_digest_unchecked(wrong).unwrap();
+    assert!(snark.verify(&corrupted).is_err());
+
+    assert!(vk.restore_digest_unchecked(wrong).is_err());
+    assert_eq!(vk.digest().unwrap(), pk.vk_digest);
+
+    assert!(restored.restore_digest_unchecked(wrong).is_err());
+    assert_eq!(restored.digest().unwrap(), pk.vk_digest);
   }
 }
