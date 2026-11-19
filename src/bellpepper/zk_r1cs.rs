@@ -495,6 +495,14 @@ impl<E: Engine<PCS = HyraxPCS<E>>> SatisfyingAssignment<E> {
   where
     E::GE: DlogGroupExt,
   {
+    // a reblinded instance no longer carries its blind variables
+    let old_cs_blinds =
+      instance
+        .blind_vars_vals()
+        .ok_or_else(|| SpartanError::InvalidInputLength {
+          reason: "cannot reblind an instance that has already been reblinded".to_string(),
+        })?;
+
     let mut instance = instance.clone();
     let mut witness = witness.clone();
 
@@ -539,7 +547,6 @@ impl<E: Engine<PCS = HyraxPCS<E>>> SatisfyingAssignment<E> {
       E::Scalar::random(OsRng),
       E::Scalar::random(OsRng),
     ];
-    let old_cs_blinds = instance.blind_vars_vals().unwrap();
     let cs_blinds_idxs_in_W: Vec<_> = old_cs_blinds
       .iter()
       .map(|old_cs_blind| witness.W.iter().position(|&x| x == *old_cs_blind).unwrap())

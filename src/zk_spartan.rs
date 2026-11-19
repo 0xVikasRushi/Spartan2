@@ -38,8 +38,8 @@ use once_cell::sync::OnceCell;
 use rand_core::OsRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use web_time::Instant;
 use tracing::{debug, info, info_span};
+use web_time::Instant;
 
 /// A type that represents the prover's key
 #[derive(Serialize, Deserialize)]
@@ -943,7 +943,13 @@ mod tests {
     )
     .unwrap();
     let snark = R1CSSNARK::<PE>::prove_inner(&pk, &U, &W, &mut transcript).unwrap();
-    Fixture { pk, vk, snark, U, W }
+    Fixture {
+      pk,
+      vk,
+      snark,
+      U,
+      W,
+    }
   }
 
   // Replaces b with b + w where <z, w> = 0, so <z, b> is unchanged.
@@ -1022,5 +1028,72 @@ mod tests {
         assert!(!bytes.windows(needle.len()).any(|w| w == needle.as_slice()));
       }
     }
+  }
+
+  #[test]
+  fn partial_commitment_absent_in_shape_is_rejected() {
+    let f = fixture();
+    assert!(f.snark.verify(&f.vk).is_ok());
+    assert!(f.vk.S.num_precommitted == 0 && f.vk.S.num_shared == 0);
+
+    // round trip through serde, then set a part the shape says is absent
+    let roundtrip = |snark: &R1CSSNARK<PE>| -> SplitR1CSInstance<PE> {
+      bincode::deserialize(&bincode::serialize(&snark.U).unwrap()).unwrap()
+    };
+
+    let mut bad: R1CSSNARK<PE> =
+      bincode::deserialize(&bincode::serialize(&f.snark).unwrap()).unwrap();
+    bad.U = roundtrip(&f.snark);
+    bad.U.comm_W_precommitted = Some(bad.U.comm_W_rest.clone());
+    let bad: R1CSSNARK<PE> = bincode::deserialize(&bincode::serialize(&bad).unwrap()).unwrap();
+    assert!(bad.verify(&f.vk).is_err());
+
+    let mut bad: R1CSSNARK<PE> =
+      bincode::deserialize(&bincode::serialize(&f.snark).unwrap()).unwrap();
+    bad.U = roundtrip(&f.snark);
+    bad.U.comm_W_shared = Some(bad.U.comm_W_rest.clone());
+    assert!(bad.verify(&f.vk).is_err());
+  }
+
+  #[test]
+  fn wrong_length_commitment_returns_err() {
+    let f = fixture();
+    let point = vec![<PE as Engine>::Scalar::ONE; f.vk.S.num_rest.log_2()];
+    let comm = f.snark.U.to_regular_instance().unwrap().comm_W;
+    for len in [0, comm.comm.len() - 1, comm.comm.len() + 1] {
+      let mut bad = comm.clone();
+      bad.comm.resize(len, comm.comm[0]);
+      let mut t = <PE as Engine>::TE::new(b"R1CSSNARK");
+      let res = <PE as Engine>::PCS::verify(
+        &f.vk.vk_ee,
+        &mut t,
+        &bad,
+        &point,
+        &f.snark.eval_W,
+        &f.snark.eval_arg,
+      );
+      assert!(res.is_err(), "commitment of {len} rows accepted");
+    }
+  }
+
+  #[test]
+  fn reblinding_a_reblinded_instance_returns_err() {
+    let f = fixture();
+    let mut t = <PE as Engine>::TE::new(b"R1CSSNARK");
+    t.absorb(b"vk", &f.pk.vk_digest);
+    let new_r = vec![<PE as Engine>::Scalar::ZERO; f.U.num_shared_rows()];
+    let (u1, w1) = SatisfyingAssignment::reblind_r1cs_instance_and_witness(
+      &new_r,
+      f.U.clone(),
+      f.W.clone(),
+      &f.pk.ck,
+      &mut t,
+    )
+    .unwrap();
+    let mut t = <PE as Engine>::TE::new(b"R1CSSNARK");
+    t.absorb(b"vk", &f.pk.vk_digest);
+    let res =
+      SatisfyingAssignment::reblind_r1cs_instance_and_witness(&new_r, u1, w1, &f.pk.ck, &mut t);
+    assert!(res.is_err());
   }
 }

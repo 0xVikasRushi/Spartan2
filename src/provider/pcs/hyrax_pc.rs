@@ -24,8 +24,8 @@ use num_integer::div_ceil;
 use rand_core::OsRng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use web_time::Instant;
 use tracing::{info, info_span};
+use web_time::Instant;
 
 type AffineGroupElement<E> = <<E as Engine>::GE as DlogGroup>::AffineGroupElement;
 
@@ -379,6 +379,16 @@ where
     let num_rows = div_ceil(n, num_cols);
 
     let (num_vars_rows, _num_vars_cols) = (num_rows.log_2(), num_cols.log_2());
+
+    if comm.comm.len() != num_rows {
+      return Err(SpartanError::InvalidCommitmentLength {
+        reason: format!(
+          "InvalidCommitmentLength: actual: {}, expected: {}",
+          comm.comm.len(),
+          num_rows
+        ),
+      });
+    }
 
     let (comm_LZ, R) = if num_vars_rows == 0 {
       let R = EqPolynomial::new(point.to_vec()).evals();
