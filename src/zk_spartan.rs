@@ -287,10 +287,15 @@ where
     );
 
     let (_outer_sumcheck_span, outer_sumcheck_t) = start_span!("outer_sumcheck_verify");
-    let (claim_outer_final, r_x, _outer_lc_poly) =
+    let (claim_outer_final, r_x, outer_lc_poly) =
       self
         .sc_proof_outer
         .verify(E::Scalar::ZERO, num_rounds_x, 3, &mut transcript)?;
+
+    // the IPA's `b` must be the verifier-derived combination of mask coefficients
+    if self.ipa_instance_outer.b_vec() != outer_lc_poly.as_slice() {
+      return Err(SpartanError::InvalidSumcheckProof);
+    }
 
     self.ipa_proof_outer.verify(
       &vk.vk_ee.ck()[..num_rounds_x * 3],
@@ -332,10 +337,14 @@ where
       &self.ipa_instance_inner.comm_a_vec(),
     );
 
-    let (claim_inner_final, r_y, _inner_lc_poly) =
+    let (claim_inner_final, r_y, inner_lc_poly) =
       self
         .sc_proof_inner
         .verify(claim_inner_joint, num_rounds_y, 2, &mut transcript)?;
+
+    if self.ipa_instance_inner.b_vec() != inner_lc_poly.as_slice() {
+      return Err(SpartanError::InvalidSumcheckProof);
+    }
 
     self.ipa_proof_inner.verify(
       &vk.vk_ee.ck()[..num_rounds_y * 2],
@@ -673,8 +682,12 @@ where
     )?;
     info!(elapsed_ms = %pcs_t.elapsed().as_millis(), "pcs_prove");
 
+    // blind_vars are the prover's secret blinding values; they must not leave the prover
+    let mut U = U.clone();
+    U.blind_vars = None;
+
     Ok(R1CSSNARK {
-      U: U.clone(),
+      U,
       sc_proof_outer,
       ipa_proof_outer,
       ipa_instance_outer,
@@ -898,5 +911,116 @@ mod tests {
 
     assert!(restored.restore_digest_unchecked(wrong).is_err());
     assert_eq!(restored.digest().unwrap(), pk.vk_digest);
+  }
+
+
+  type PE = crate::provider::PallasHyraxEngine;
+
+  struct Fixture {
+    pk: SpartanProverKey<PE>,
+    vk: SpartanVerifierKey<PE>,
+    snark: R1CSSNARK<PE>,
+    // instance and witness as cached before proving
+    U: SplitR1CSInstance<PE>,
+    W: R1CSWitness<PE>,
+  }
+
+  fn fixture() -> Fixture {
+    let circuit = CubicCircuit::default();
+    let (pk, vk) = R1CSSNARK::<PE>::setup(circuit.clone()).unwrap();
+    let mut prep = R1CSSNARK::<PE>::prep_prove(&pk, circuit.clone(), false).unwrap();
+    let mut transcript = <PE as Engine>::TE::new(b"R1CSSNARK");
+    transcript.absorb(b"vk", &pk.vk_digest);
+    let pv = SpartanCircuit::<PE>::public_values(&circuit).unwrap();
+    transcript.absorb(b"public_values", &pv.as_slice());
+    let (U, W) = SatisfyingAssignment::r1cs_instance_and_witness(
+      &mut prep.ps,
+      &pk.S,
+      &pk.ck,
+      &circuit,
+      false,
+      &mut transcript,
+    )
+    .unwrap();
+    let snark = R1CSSNARK::<PE>::prove_inner(&pk, &U, &W, &mut transcript).unwrap();
+    Fixture { pk, vk, snark, U, W }
+  }
+
+  // Replaces b with b + w where <z, w> = 0, so <z, b> is unchanged.
+  fn shift_b_keeping_inner_product(
+    ipa: &InnerProductArgumentLinear<PE>,
+    inst: &mut InnerProductInstance<PE>,
+  ) {
+    let z = ipa.z_vec().to_vec();
+    let b = inst.b_vec_mut();
+    let (z0, z1) = (z[0], z[1]);
+    b[0] += z1;
+    b[1] -= z0;
+  }
+
+  #[test]
+  fn ipa_b_vec_is_bound_to_sumcheck_transcript() {
+    let mut f = fixture();
+    assert!(f.snark.verify(&f.vk).is_ok());
+
+    shift_b_keeping_inner_product(&f.snark.ipa_proof_outer, &mut f.snark.ipa_instance_outer);
+    assert!(
+      f.snark.verify(&f.vk).is_err(),
+      "proof with altered outer b_vec was ACCEPTED"
+    );
+  }
+
+  #[test]
+  fn ipa_inner_b_vec_is_bound_to_sumcheck_transcript() {
+    let mut f = fixture();
+    shift_b_keeping_inner_product(&f.snark.ipa_proof_inner, &mut f.snark.ipa_instance_inner);
+    assert!(
+      f.snark.verify(&f.vk).is_err(),
+      "proof with altered inner b_vec was ACCEPTED"
+    );
+  }
+
+  #[test]
+  fn truncated_b_vec_returns_err() {
+    let mut f = fixture();
+    f.snark.ipa_instance_outer.b_vec_mut().pop();
+    assert!(f.snark.verify(&f.vk).is_err());
+
+    let mut f = fixture();
+    f.snark.ipa_instance_inner.b_vec_mut().pop();
+    assert!(f.snark.verify(&f.vk).is_err());
+  }
+
+  #[test]
+  fn reblinds_share_no_blind_vars() {
+    let f = fixture();
+    let reblind = || {
+      let mut t = <PE as Engine>::TE::new(b"R1CSSNARK");
+      t.absorb(b"vk", &f.pk.vk_digest);
+      let new_r = (0..f.U.num_shared_rows())
+        .map(|_| <PE as Engine>::Scalar::random(OsRng))
+        .collect::<Vec<_>>();
+      SatisfyingAssignment::reblind_r1cs_instance_and_witness(
+        &new_r,
+        f.U.clone(),
+        f.W.clone(),
+        &f.pk.ck,
+        &mut t,
+      )
+      .unwrap()
+      .0
+    };
+    let (u1, u2) = (reblind(), reblind());
+    assert!(u1.blind_vars_vals().is_none() && u2.blind_vars_vals().is_none());
+
+    // the cached instance's blinds must not survive in any serialized output
+    let old = f.U.blind_vars_vals().unwrap();
+    for u in [&u1, &u2, &f.snark.U] {
+      let bytes = bincode::serialize(u).unwrap();
+      for v in old {
+        let needle = bincode::serialize(&v).unwrap();
+        assert!(!bytes.windows(needle.len()).any(|w| w == needle.as_slice()));
+      }
+    }
   }
 }

@@ -574,6 +574,8 @@ impl<E: Engine<PCS = HyraxPCS<E>>> SatisfyingAssignment<E> {
     instance.comm_W_shared = comm_W_shared;
     instance.comm_W_precommitted = comm_W_precommitted;
     instance.comm_W_rest = comm_W_rest;
+    // the old values no longer appear in W; leaving them would link presentations
+    instance.blind_vars = None;
 
     witness.r_W = r;
 

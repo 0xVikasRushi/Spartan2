@@ -41,6 +41,15 @@ impl<E: Engine> InnerProductInstance<E> {
   pub fn c(&self) -> E::Scalar {
     self.c
   }
+
+  pub(crate) fn b_vec(&self) -> &[E::Scalar] {
+    &self.b_vec
+  }
+
+  #[cfg(test)]
+  pub(crate) fn b_vec_mut(&mut self) -> &mut Vec<E::Scalar> {
+    &mut self.b_vec
+  }
 }
 
 /// Holds witness for the inner product instance.
@@ -128,6 +137,11 @@ where
     b"inner product argument (linear)"
   }
 
+  #[cfg(test)]
+  pub(crate) fn z_vec(&self) -> &[E::Scalar] {
+    &self.z_vec
+  }
+
   /// Proves the inner product argument
   pub fn prove(
     ck: &[<E::GE as DlogGroup>::AffineGroupElement],
@@ -195,12 +209,13 @@ where
 
     let r = transcript.squeeze(b"r")?;
 
-    if self.z_vec.len() != n || ck.len() < self.z_vec.len() {
+    if self.z_vec.len() != n || U.b_vec.len() != n || ck.len() < self.z_vec.len() {
       return Err(SpartanError::InvalidInputLength {
         reason: format!(
-          "Inner product argument verify: Expected {} elements in z_vec, got {}",
+          "Inner product argument verify: Expected {} elements in z_vec and b_vec, got {} and {}",
           n,
-          self.z_vec.len()
+          self.z_vec.len(),
+          U.b_vec.len()
         ),
       });
     }
