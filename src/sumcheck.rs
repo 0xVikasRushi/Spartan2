@@ -16,8 +16,8 @@ use crate::{
 use ff::Field;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use web_time::Instant;
 use tracing::{info, info_span};
+use web_time::Instant;
 
 /// 4 k elements is a good cut-off on a 16-core machine.
 const PAR_THRESHOLD: usize = 4 << 10; // 4096
@@ -99,6 +99,10 @@ impl<E: Engine> SumcheckProof<E> {
 
     for i in 0..self.compressed_polys.len() {
       let (_round_span, round_t) = start_span!("sumcheck_verify_round", round = i);
+      // decompress() indexes the first coefficient, so check the length first
+      if self.compressed_polys[i].degree() != degree_bound {
+        return Err(SpartanError::InvalidSumcheckProof);
+      }
       let poly = self.compressed_polys[i].decompress(&e);
 
       // verify degree bound

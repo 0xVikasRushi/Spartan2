@@ -543,3 +543,51 @@ where
     Ok(Self::Blind { blind: acc })
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::provider::PallasHyraxEngine as PE;
+
+  type Scalar = <PE as Engine>::Scalar;
+
+  // Honest evaluation proofs verify; commitments with a different row count are
+  // rejected with InvalidCommitmentLength, in both the single-row and multi-row branches.
+  fn check_row_count_is_enforced(log_n: usize) {
+    let n = 1usize << log_n;
+    let (ck, vk) = HyraxPCS::<PE>::setup(b"test", n);
+    let poly: Vec<Scalar> = (0..n).map(|_| Scalar::random(OsRng)).collect();
+    let point: Vec<Scalar> = (0..log_n).map(|_| Scalar::random(OsRng)).collect();
+    let blind = HyraxPCS::<PE>::blind(&ck, n);
+    let comm = HyraxPCS::<PE>::commit(&ck, &poly, &blind, false).unwrap();
+    let rows = comm.comm.len();
+
+    let new_transcript = || <PE as Engine>::TE::new(b"t");
+    let (eval, arg) =
+      HyraxPCS::<PE>::prove(&ck, &mut new_transcript(), &comm, &poly, &blind, &point).unwrap();
+    HyraxPCS::<PE>::verify(&vk, &mut new_transcript(), &comm, &point, &eval, &arg).unwrap();
+
+    for len in [0, rows + 1]
+      .into_iter()
+      .chain((rows > 1).then_some(rows - 1))
+    {
+      let mut bad = comm.clone();
+      bad.comm.resize(len, comm.comm[0]);
+      let res = HyraxPCS::<PE>::verify(&vk, &mut new_transcript(), &bad, &point, &eval, &arg);
+      assert!(
+        matches!(res, Err(SpartanError::InvalidCommitmentLength { .. })),
+        "{rows}-row commitment resized to {len}: {res:?}"
+      );
+    }
+  }
+
+  #[test]
+  fn verify_rejects_wrong_row_count_single_row() {
+    check_row_count_is_enforced(10);
+  }
+
+  #[test]
+  fn verify_rejects_wrong_row_count_multi_row() {
+    check_row_count_is_enforced(12);
+  }
+}

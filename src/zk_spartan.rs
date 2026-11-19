@@ -913,7 +913,6 @@ mod tests {
     assert_eq!(restored.digest().unwrap(), pk.vk_digest);
   }
 
-
   type PE = crate::provider::PallasHyraxEngine;
 
   struct Fixture {
@@ -1055,25 +1054,50 @@ mod tests {
     assert!(bad.verify(&f.vk).is_err());
   }
 
+  // Mutates a copy of the proof through a serde round trip.
+  fn mutated(f: &Fixture, edit: impl FnOnce(&mut R1CSSNARK<PE>)) -> R1CSSNARK<PE> {
+    let mut bad: R1CSSNARK<PE> =
+      bincode::deserialize(&bincode::serialize(&f.snark).unwrap()).unwrap();
+    edit(&mut bad);
+    bad
+  }
+
+  // Only the presence check can catch this: the extra part has a valid row count
+  // for a zero-variable part only if it is empty, so use an empty partial commitment.
   #[test]
-  fn wrong_length_commitment_returns_err() {
+  fn present_but_empty_partial_commitment_is_rejected() {
     let f = fixture();
-    let point = vec![<PE as Engine>::Scalar::ONE; f.vk.S.num_rest.log_2()];
-    let comm = f.snark.U.to_regular_instance().unwrap().comm_W;
-    for len in [0, comm.comm.len() - 1, comm.comm.len() + 1] {
-      let mut bad = comm.clone();
-      bad.comm.resize(len, comm.comm[0]);
-      let mut t = <PE as Engine>::TE::new(b"R1CSSNARK");
-      let res = <PE as Engine>::PCS::verify(
-        &f.vk.vk_ee,
-        &mut t,
-        &bad,
-        &point,
-        &f.snark.eval_W,
-        &f.snark.eval_arg,
-      );
-      assert!(res.is_err(), "commitment of {len} rows accepted");
+    let bad = mutated(&f, |s| {
+      let mut empty = s.U.comm_W_rest.clone();
+      empty.comm.clear();
+      s.U.comm_W_precommitted = Some(empty);
+    });
+    assert!(matches!(
+      bad.verify(&f.vk),
+      Err(SpartanError::ProofVerifyError { .. })
+    ));
+  }
+
+  #[test]
+  fn wrong_public_values_length_returns_err() {
+    let f = fixture();
+    let long = mutated(&f, |s| s.U.public_values.push(<PE as Engine>::Scalar::ONE));
+    let short = mutated(&f, |s| s.U.public_values.clear());
+    for bad in [long, short] {
+      match bad.verify(&f.vk) {
+        Err(SpartanError::ProofVerifyError { reason }) => assert!(reason.contains("public_values")),
+        other => panic!("expected a public_values length error, got {other:?}"),
+      }
     }
+  }
+
+  #[test]
+  fn empty_round_polynomial_returns_err() {
+    let f = fixture();
+    let bad = mutated(&f, |s| s.sc_proof_outer.empty_round_poly_for_test(0));
+    assert!(bad.verify(&f.vk).is_err());
+    let bad = mutated(&f, |s| s.sc_proof_inner.empty_round_poly_for_test(0));
+    assert!(bad.verify(&f.vk).is_err());
   }
 
   #[test]

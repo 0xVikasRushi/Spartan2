@@ -806,6 +806,17 @@ impl<E: Engine> SplitR1CSInstance<E> {
     S: &SplitR1CSShape<E>,
     transcript: &mut E::TE,
   ) -> Result<(), SpartanError> {
+    // the verifier builds X from these, so the count must match the shape exactly
+    if self.public_values.len() != S.num_public {
+      return Err(SpartanError::ProofVerifyError {
+        reason: format!(
+          "public_values has {} entries, expected {}",
+          self.public_values.len(),
+          S.num_public
+        ),
+      });
+    }
+
     // absorb the public IO into the transcript
     transcript.absorb(b"public_values", &self.public_values.as_slice());
 

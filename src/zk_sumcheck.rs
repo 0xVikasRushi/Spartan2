@@ -16,8 +16,8 @@ use crate::{
 use ff::{Field, PrimeField};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use web_time::Instant;
 use tracing::{info, info_span};
+use web_time::Instant;
 
 /// 4 k elements is a good cut-off on a 16-core machine.
 const PAR_THRESHOLD: usize = 4 << 10; // 4096
@@ -114,6 +114,11 @@ pub struct SumcheckProof<E: Engine> {
 }
 
 impl<E: Engine> SumcheckProof<E> {
+  #[cfg(test)]
+  pub(crate) fn empty_round_poly_for_test(&mut self, i: usize) {
+    self.compressed_polys[i] = CompressedUniPoly::empty_for_test();
+  }
+
   /// Verifies a sum-check proof.
   ///
   /// # Arguments
@@ -149,6 +154,10 @@ impl<E: Engine> SumcheckProof<E> {
 
     for (i, poly) in self.compressed_polys.iter().enumerate() {
       let (_round_span, round_t) = start_span!("sumcheck_verify_round", round = i);
+      // decompress() indexes the first coefficient, so check the length first
+      if poly.degree() != degree_bound {
+        return Err(SpartanError::InvalidSumcheckProof);
+      }
       let poly = poly.decompress(&e);
       // TODO compute decompress over the LC variables using hinted LC version of e
 
