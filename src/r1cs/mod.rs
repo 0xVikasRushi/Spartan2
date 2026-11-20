@@ -806,8 +806,32 @@ impl<E: Engine> SplitR1CSInstance<E> {
     S: &SplitR1CSShape<E>,
     transcript: &mut E::TE,
   ) -> Result<(), SpartanError> {
+    // the verifier builds X from these, so the count must match the shape exactly
+    if self.public_values.len() != S.num_public {
+      return Err(SpartanError::ProofVerifyError {
+        reason: format!(
+          "public_values has {} entries, expected {}",
+          self.public_values.len(),
+          S.num_public
+        ),
+      });
+    }
+
     // absorb the public IO into the transcript
     transcript.absorb(b"public_values", &self.public_values.as_slice());
+
+    // an absent part must stay absent: to_regular_instance folds in every `Some`
+    if S.num_shared == 0 && self.comm_W_shared.is_some() {
+      return Err(SpartanError::ProofVerifyError {
+        reason: "comm_W_shared present but the shape has no shared variables".to_string(),
+      });
+    }
+    if S.num_precommitted == 0 && self.comm_W_precommitted.is_some() {
+      return Err(SpartanError::ProofVerifyError {
+        reason: "comm_W_precommitted present but the shape has no precommitted variables"
+          .to_string(),
+      });
+    }
 
     if S.num_shared > 0 {
       if let Some(comm) = &self.comm_W_shared {
