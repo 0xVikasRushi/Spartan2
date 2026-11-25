@@ -102,6 +102,18 @@ impl<Scalar: PrimeField> UniPoly<Scalar> {
 }
 
 impl<Scalar: PrimeField> CompressedUniPoly<Scalar> {
+  #[cfg(test)]
+  pub(crate) fn empty_for_test() -> Self {
+    Self {
+      coeffs_except_linear_term: vec![],
+    }
+  }
+
+  /// Number of coefficients stored, which is the degree of the decompressed polynomial.
+  pub(crate) fn degree(&self) -> usize {
+    self.coeffs_except_linear_term.len()
+  }
+
   // we require eval(0) + eval(1) = hint, so we can solve for the linear term as:
   // linear_term = hint - 2 * constant_term - deg2 term - deg3 term
   /// Decompresses the polynomial by reconstructing the linear coefficient.
